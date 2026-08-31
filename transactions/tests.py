@@ -697,3 +697,286 @@ class TransactionAPITests(TestCase):
             response.data["detail"],
             "Transaction not found.",
         )
+        
+    def test_transfer_idempotency(self):
+        self.authenticate(self.sender_user)
+
+        payload = {
+            "to_account_id": self.receiver.pk,
+            "amount": "1000.00",
+            "idempotency_key": "api-idempotency-001",
+        }
+
+        # First request
+        first_response = self.client.post(
+            "/api/transactions/transfer/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+
+        # Second request with the exact same idempotency key
+        second_response = self.client.post(
+            "/api/transactions/transfer/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+
+        # Both requests should refer to the same transaction.
+        self.assertEqual(
+            first_response.data["id"],
+            second_response.data["id"],
+        )
+
+        # The transfer must only happen once.
+        self.assertEqual(
+            get_account_balance(self.sender),
+            Decimal("4000.00"),
+        )
+
+        self.assertEqual(
+            get_account_balance(self.receiver),
+            Decimal("1000.00"),
+        )
+
+        # Only one transaction should have been created.
+        self.assertEqual(
+            Transaction.objects.filter(
+                idempotency_key="api-idempotency-001"
+            ).count(),
+            1,
+        )
+        
+    def test_transaction_filter_by_status(self):
+        self.authenticate(self.sender_user)
+
+        transfer = transfer_money(
+            from_account_id=self.sender.pk,
+            to_account_id=self.receiver.pk,
+            amount=Decimal("1000.00"),
+            idempotency_key="filter-status-001",
+        )
+
+        response = self.client.get(
+            "/api/transactions/?status=COMPLETED"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = [
+            item["id"]
+            for item in response.data["results"]
+        ]
+
+        self.assertIn(transfer.pk, returned_ids)
+
+
+    def test_transaction_filter_by_direction_sent(self):
+        self.authenticate(self.sender_user)
+
+        transfer = transfer_money(
+            from_account_id=self.sender.pk,
+            to_account_id=self.receiver.pk,
+            amount=Decimal("1000.00"),
+            idempotency_key="filter-sent-001",
+        )
+
+        response = self.client.get(
+            "/api/transactions/?direction=sent"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = [
+            item["id"]
+            for item in response.data["results"]
+        ]
+
+        self.assertIn(transfer.pk, returned_ids)
+
+
+    def test_transaction_filter_by_direction_received(self):
+        self.authenticate(self.receiver_user)
+
+        transfer = transfer_money(
+            from_account_id=self.sender.pk,
+            to_account_id=self.receiver.pk,
+            amount=Decimal("1000.00"),
+            idempotency_key="filter-received-001",
+        )
+
+        response = self.client.get(
+            "/api/transactions/?direction=received"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = [
+            item["id"]
+            for item in response.data["results"]
+        ]
+
+        self.assertIn(transfer.pk, returned_ids)
+
+
+    def test_transaction_filter_by_date_range(self):
+        self.authenticate(self.sender_user)
+
+        transfer = transfer_money(
+            from_account_id=self.sender.pk,
+            to_account_id=self.receiver.pk,
+            amount=Decimal("1000.00"),
+            idempotency_key="filter-date-001",
+        )
+
+        transaction_date = transfer.created_at.date()
+
+        response = self.client.get(
+            "/api/transactions/",
+            {
+                "from_date": transaction_date,
+                "to_date": transaction_date,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = [
+            item["id"]
+            for item in response.data["results"]
+        ]
+
+        self.assertIn(transfer.pk, returned_ids)
+        
+    def test_transaction_filter_rejects_invalid_date_range(self):
+        self.authenticate(self.sender_user)
+
+        response = self.client.get(
+            "/api/transactions/"
+            "?from_date=2026-08-31"
+            "&to_date=2026-08-30"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertIn(
+            "from_date",
+            response.data["non_field_errors"][0],
+        )
+    
+    def test_unauthenticated_transaction_list(self):
+        response = self.client.get(
+            "/api/transactions/"
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+
+    def test_unauthenticated_transaction_detail(self):
+        response = self.client.get(
+            "/api/transactions/99999/"
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+
+    def test_transaction_detail_not_found(self):
+        self.authenticate(self.sender_user)
+
+        response = self.client.get(
+            "/api/transactions/99999/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+        self.assertEqual(
+            response.data["detail"],
+            "Transaction not found.",
+        )
+
+
+    def test_invalid_date_format(self):
+        self.authenticate(self.sender_user)
+
+        response = self.client.get(
+            "/api/transactions/",
+            {
+                "from_date": "not-a-date",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertIn(
+            "from_date",
+            response.data,
+        )
+
+
+    def test_from_date_cannot_be_later_than_to_date(self):
+        self.authenticate(self.sender_user)
+
+        response = self.client.get(
+            "/api/transactions/",
+            {
+                "from_date": "2026-08-31",
+                "to_date": "2026-08-30",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertIn(
+            "from_date cannot be later than to_date",
+            response.data["non_field_errors"][0],
+        )
+
+
+    def test_idempotency_prevents_duplicate_api_transfer(self):
+        self.authenticate(self.sender_user)
+
+        payload = {
+            "to_account_id": self.receiver.pk,
+            "amount": "1000.00",
+            "idempotency_key": "api-idempotency-001",
+        }
+
+        first_response = self.client.post(
+            "/api/transactions/transfer/",
+            payload,
+            format="json",
+        )
+
+        second_response = self.client.post(
+            "/api/transactions/transfer/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+
+        self.assertEqual(
+            first_response.data["id"],
+            second_response.data["id"],
+        )
+
+        self.assertEqual(
+            Transaction.objects.filter(
+                idempotency_key="api-idempotency-001"
+            ).count(),
+            1,
+        )
+
+        self.assertEqual(
+            get_account_balance(self.sender),
+            Decimal("4000.00"),
+        )
+
+        self.assertEqual(
+            get_account_balance(self.receiver),
+            Decimal("1000.00"),
+        )
