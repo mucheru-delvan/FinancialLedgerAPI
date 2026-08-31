@@ -980,3 +980,66 @@ class TransactionAPITests(TestCase):
             get_account_balance(self.receiver),
             Decimal("1000.00"),
         )
+        
+    def test_inactive_receiver_is_rejected(self):
+        self.authenticate(self.sender_user)
+
+        self.receiver.status = "inactive"
+        self.receiver.save(update_fields=["status"])
+
+        response = self.client.post(
+            "/api/transactions/transfer/",
+            {
+                "to_account_id": self.receiver.pk,
+                "amount": "1000.00",
+                "idempotency_key": "api-inactive-receiver-001",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertIn(
+            "to_account_id",
+            response.data,
+        )
+
+        self.assertEqual(
+            get_account_balance(self.sender),
+            Decimal("5000.00"),
+        )
+
+        self.assertEqual(
+            Transaction.objects.count(),
+            1,
+        )
+
+
+    def test_invalid_status_filter_is_rejected(self):
+        self.authenticate(self.sender_user)
+
+        response = self.client.get(
+            "/api/transactions/?status=INVALID",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertIn(
+            "status",
+            response.data,
+        )
+
+
+    def test_invalid_direction_filter_is_rejected(self):
+        self.authenticate(self.sender_user)
+
+        response = self.client.get(
+            "/api/transactions/?direction=INVALID",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertIn(
+            "direction",
+            response.data,
+        )

@@ -2,31 +2,53 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from accounts.models import Account
-from transactions.models import Transaction
+from accounts.models import Account, AccountStatus
+from transactions.models import Transaction, TransactionStatus
+
 
 class TransferSerializer(serializers.Serializer):
     to_account_id = serializers.IntegerField()
+
     amount = serializers.DecimalField(
         max_digits=19,
         decimal_places=2,
         min_value=Decimal("0.01"),
     )
-    idempotency_key = serializers.CharField(max_length=255)
+
+    idempotency_key = serializers.CharField(
+        max_length=255,
+        trim_whitespace=True,
+    )
 
     def validate_to_account_id(self, value):
-        if not Account.objects.filter(pk=value).exists():
+        try:
+            account = Account.objects.get(pk=value)
+        except Account.DoesNotExist:
             raise serializers.ValidationError(
                 "Receiver account does not exist."
             )
 
+        if account.status != AccountStatus.ACTIVE.value:
+            raise serializers.ValidationError(
+                "Receiver account is not active."
+            )
+
         return value
-from datetime import date
+
 
 class TransactionFilterSerializer(serializers.Serializer):
-    status = serializers.CharField(required=False)
-    direction = serializers.CharField(required=False)
+    status = serializers.ChoiceField(
+        choices=TransactionStatus.values,
+        required=False,
+    )
+
+    direction = serializers.ChoiceField(
+        choices=["sent", "received"],
+        required=False,
+    )
+
     from_date = serializers.DateField(required=False)
+
     to_date = serializers.DateField(required=False)
 
     def validate(self, attrs):
@@ -40,9 +62,11 @@ class TransactionFilterSerializer(serializers.Serializer):
 
         return attrs
 
+
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
+
         fields = [
             "id",
             "from_account",
@@ -52,6 +76,7 @@ class TransactionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
         read_only_fields = [
             "id",
             "from_account",
