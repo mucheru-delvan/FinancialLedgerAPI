@@ -1,14 +1,26 @@
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from drf_spectacular.utils import extend_schema
 
-from users.serializers import LoginSerializer, RegisterSerializer, UserSerializer
+from users.serializers import (
+    LoginSerializer,
+    RegisterSerializer,
+    UserSerializer,
+)
 
 
 class RegisterView(APIView):
 
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=RegisterSerializer,
+        responses={201: UserSerializer},
+        tags=["auth"],
+    )
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
 
@@ -28,6 +40,25 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
 
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=LoginSerializer,
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "access": {
+                        "type": "string",
+                    },
+                    "refresh": {
+                        "type": "string",
+                    },
+                },
+            }
+        },
+        tags=["auth"],
+    )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
 
@@ -48,15 +79,17 @@ class LoginView(APIView):
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
         )
-        
+
+
 class MeView(APIView):
+
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={200: UserSerializer},
+        tags=["auth"],
+    )
     def get(self, request):
         return Response(
-            {
-                "id": request.user.pk,
-                "email": request.user.email,
-                "name": request.user.name,
-            }
+            UserSerializer(request.user).data
         )

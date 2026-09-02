@@ -36,9 +36,36 @@ class TransferSerializer(serializers.Serializer):
         return value
 
 
+class TransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Transaction
+        fields = [
+            "id",
+            "from_account",
+            "to_account",
+            "amount",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "from_account",
+            "to_account",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+
+
 class TransactionFilterSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=TransactionStatus.values,
+        choices=[
+            TransactionStatus.PENDING.value,
+            TransactionStatus.COMPLETED.value,
+            TransactionStatus.FAILED.value,
+            TransactionStatus.REVERSED.value,
+        ],
         required=False,
     )
 
@@ -47,9 +74,13 @@ class TransactionFilterSerializer(serializers.Serializer):
         required=False,
     )
 
-    from_date = serializers.DateField(required=False)
+    from_date = serializers.DateField(
+        required=False,
+    )
 
-    to_date = serializers.DateField(required=False)
+    to_date = serializers.DateField(
+        required=False,
+    )
 
     def validate(self, attrs):
         from_date = attrs.get("from_date")
@@ -61,27 +92,3 @@ class TransactionFilterSerializer(serializers.Serializer):
             )
 
         return attrs
-
-
-class TransactionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Transaction
-
-        fields = [
-            "id",
-            "from_account",
-            "to_account",
-            "amount",
-            "status",
-            "created_at",
-            "updated_at",
-        ]
-
-        read_only_fields = [
-            "id",
-            "from_account",
-            "to_account",
-            "status",
-            "created_at",
-            "updated_at",
-        ]

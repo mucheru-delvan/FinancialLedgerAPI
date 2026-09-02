@@ -1,6 +1,8 @@
-from rest_framework import serializers
 from django.contrib.auth import authenticate
+from django.db import transaction
+from rest_framework import serializers
 
+from accounts.models import Account
 from users.models import User
 
 
@@ -14,12 +16,21 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ["email", "name", "password"]
 
+    @transaction.atomic
     def create(self, validated_data):
-        return User.objects.create_user(
+        user = User.objects.create_user(
             email=validated_data["email"],
             name=validated_data["name"],
             password=validated_data["password"],
         )
+
+        Account.objects.create(
+            user=user,
+            currency="KES",
+            status="active",
+        )
+
+        return user
 
 
 class UserSerializer(serializers.ModelSerializer):

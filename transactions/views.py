@@ -1,13 +1,15 @@
 from django.db.models import Q
-from rest_framework.generics import ListAPIView
+
 from rest_framework import status
+from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from drf_spectacular.utils import extend_schema
+
 from accounts.models import Account
 from transactions.models import Transaction
-#from transactions.serializers import TransferSerializer, TransactionSerializer
 from transactions.services import transfer_money
 from transactions.serializers import (
     TransferSerializer,
@@ -15,9 +17,16 @@ from transactions.serializers import (
     TransactionFilterSerializer,
 )
 
+
 class TransferView(APIView):
+
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=TransferSerializer,
+        responses={200: TransactionSerializer},
+        tags=["transactions"],
+    )
     def post(self, request):
         serializer = TransferSerializer(data=request.data)
 
@@ -30,9 +39,13 @@ class TransferView(APIView):
 
                 transfer = transfer_money(
                     from_account_id=sender_account.pk,
-                    to_account_id=serializer.validated_data["to_account_id"],
+                    to_account_id=serializer.validated_data[
+                        "to_account_id"
+                    ],
                     amount=serializer.validated_data["amount"],
-                    idempotency_key=serializer.validated_data["idempotency_key"],
+                    idempotency_key=serializer.validated_data[
+                        "idempotency_key"
+                    ],
                 )
 
                 return Response(
@@ -51,17 +64,29 @@ class TransferView(APIView):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+
 class TransactionListView(ListAPIView):
+
     serializer_class = TransactionSerializer
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        parameters=[TransactionFilterSerializer],
+        responses={200: TransactionSerializer(many=True)},
+        tags=["transactions"],
+    )
     def get_queryset(self):
-        accounts = Account.objects.filter(user=self.request.user)
+        accounts = Account.objects.filter(
+            user=self.request.user
+        )
 
         filter_serializer = TransactionFilterSerializer(
             data=self.request.query_params
         )
-        filter_serializer.is_valid(raise_exception=True)
+
+        filter_serializer.is_valid(
+            raise_exception=True
+        )
 
         filters = filter_serializer.validated_data
 
@@ -106,20 +131,40 @@ class TransactionListView(ListAPIView):
             )
 
         return queryset.order_by("-created_at")
-    
-    
+
+
 class TransactionDetailView(APIView):
+
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={
+            200: TransactionSerializer,
+            404: {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string",
+                    },
+                },
+            },
+        },
+        tags=["transactions"],
+    )
     def get(self, request, pk):
-        accounts = Account.objects.filter(user=request.user)
+        accounts = Account.objects.filter(
+            user=request.user
+        )
 
-        transaction = Transaction.objects.filter(
-            pk=pk
-        ).filter(
-            Q(from_account__in=accounts)
-            | Q(to_account__in=accounts)
-        ).first()
+        transaction = (
+            Transaction.objects
+            .filter(pk=pk)
+            .filter(
+                Q(from_account__in=accounts)
+                | Q(to_account__in=accounts)
+            )
+            .first()
+        )
 
         if not transaction:
             return Response(
@@ -129,7 +174,4 @@ class TransactionDetailView(APIView):
 
         serializer = TransactionSerializer(transaction)
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
+        return Response(serializer.data)
