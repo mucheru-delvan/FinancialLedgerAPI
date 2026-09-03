@@ -52,7 +52,11 @@ def transfer_money(
         if to_account.status != AccountStatus.ACTIVE.value:
             raise ValueError("Receiver account is not active")
 
-        # Idempotency check.
+        if from_account.currency != to_account.currency:
+            raise ValueError(
+                "Currency mismatch between sender and receiver accounts"
+            )
+                # Idempotency check.
         existing_transaction = (
             Transaction.objects
             .filter(idempotency_key=idempotency_key)
@@ -60,9 +64,19 @@ def transfer_money(
         )
 
         if existing_transaction:
+            if (
+                existing_transaction.from_account_id != from_account_id
+                or existing_transaction.to_account_id != to_account_id
+                or existing_transaction.amount != amount
+            ):
+                raise ValueError(
+                    "Idempotency key has already been used "
+                    "for a different transaction."
+                )
+
             return existing_transaction
 
-        # Calculate balance while the account is locked.
+            # Calculate balance while the account is locked.
         balance = get_account_balance(from_account)
 
         if balance < amount:

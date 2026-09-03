@@ -11,6 +11,10 @@ from ledger.services import get_account_balance
 from transactions.models import Transaction, TransactionStatus
 from transactions.services import transfer_money
 from users.models import User
+from unittest.mock import patch
+from rest_framework.test import APIClient
+from decimal import Decimal
+import threading
 
 
 class TransferMoneyTests(TestCase):
@@ -58,7 +62,89 @@ class TransferMoneyTests(TestCase):
             amount=self.initial_balance,
             entry_type=LedgerEntryType.CREDIT,
         )
+        
+    def test_currency_mismatch(self):
+        self.receiver.currency = "USD"
+        self.receiver.save(update_fields=["currency"])
 
+        with self.assertRaisesMessage(
+            ValueError,
+            "Currency mismatch between sender and receiver accounts",
+        ):
+            transfer_money(
+                from_account_id=self.sender.pk,
+                to_account_id=self.receiver.pk,
+                amount=Decimal("100.00"),
+                idempotency_key="currency-mismatch-001",
+            )
+        
+    def test_transfer_rolls_back_if_credit_fails(self):
+            initial_sender_balance = get_account_balance(self.sender)
+            initial_receiver_balance = get_account_balance(self.receiver)
+
+            initial_transaction_count = Transaction.objects.count()
+            initial_ledger_count = LedgerEntry.objects.count()
+
+            original_create = LedgerEntry.objects.create
+            call_count = 0
+
+            def create_with_failure(*args, **kwargs):
+                nonlocal call_count
+
+                call_count += 1
+
+                # First ledger entry = sender debit.
+                # Second ledger entry = receiver credit.
+                if call_count == 2:
+                    raise RuntimeError("Simulated credit failure")
+
+                return original_create(*args, **kwargs)
+
+            with patch.object(
+                LedgerEntry.objects,
+                "create",
+                side_effect=create_with_failure,
+            ):
+                with self.assertRaisesMessage(
+                    RuntimeError,
+                    "Simulated credit failure",
+                ):
+                    transfer_money(
+                        from_account_id=self.sender.pk,
+                        to_account_id=self.receiver.pk,
+                        amount=Decimal("1000.00"),
+                        idempotency_key="rollback-test-001",
+                    )
+
+            # The transaction itself must have been rolled back.
+            self.assertEqual(
+                Transaction.objects.count(),
+                initial_transaction_count,
+            )
+
+            # The sender debit must also have been rolled back.
+            self.assertEqual(
+                LedgerEntry.objects.count(),
+                initial_ledger_count,
+            )
+
+            # Both balances must remain unchanged.
+            self.assertEqual(
+                get_account_balance(self.sender),
+                initial_sender_balance,
+            )
+
+            self.assertEqual(
+                get_account_balance(self.receiver),
+                initial_receiver_balance,
+            )
+
+            # The idempotency key must not have been persisted.
+            self.assertFalse(
+                Transaction.objects.filter(
+                    idempotency_key="rollback-test-001"
+                ).exists()
+            )
     def test_successful_transfer(self):
         transaction = transfer_money(
             from_account_id=self.sender.pk,
@@ -320,7 +406,89 @@ class TransferMoneyConcurrencyTests(TransactionTestCase):
             amount=initial_balance,
             entry_type=LedgerEntryType.CREDIT,
         )
+    def test_concurrent_same_idempotency_key_creates_one_transaction(self):
+        results = []
+        errors = []
 
+        def make_transfer():
+            close_old_connections()
+
+            try:
+                result = transfer_money(
+                    from_account_id=self.sender.pk,
+                    to_account_id=self.receiver.pk,
+                    amount=Decimal("1000.00"),
+                    idempotency_key="concurrent-idempotency-001",
+                )
+
+                results.append(result)
+
+            except Exception as error:
+                errors.append(error)
+
+            finally:
+                close_old_connections()
+
+        thread_one = threading.Thread(
+            target=make_transfer,
+        )
+
+        thread_two = threading.Thread(
+            target=make_transfer,
+        )
+
+        thread_one.start()
+        thread_two.start()
+
+        thread_one.join()
+        thread_two.join()
+
+        # Both requests should receive the same transaction.
+        self.assertEqual(
+            len(results),
+            2,
+        )
+
+        self.assertEqual(
+            len(errors),
+            0,
+        )
+
+        # Only one transaction should have been created.
+        self.assertEqual(
+            Transaction.objects.filter(
+                idempotency_key="concurrent-idempotency-001"
+            ).count(),
+            1,
+        )
+
+        # Both results should refer to the same transaction.
+        self.assertEqual(
+            results[0].pk,
+            results[1].pk,
+        )
+
+        # Only KES 1,000 should have been transferred.
+        self.assertEqual(
+            get_account_balance(self.sender),
+            Decimal("4000.00"),
+        )
+
+        self.assertEqual(
+            get_account_balance(self.receiver),
+            Decimal("1000.00"),
+        )
+
+        # Exactly two ledger entries should exist for the transfer:
+        # one debit and one credit.
+        transaction = results[0]
+
+        self.assertEqual(
+            LedgerEntry.objects.filter(
+                transaction=transaction
+            ).count(),
+            2,
+        )
     def test_concurrent_transfers_cannot_overspend(self):
         results = []
         errors = []
@@ -468,7 +636,8 @@ class TransactionAPITests(TestCase):
 
         response = self.client.post(
             "/api/transactions/transfer/",
-            {
+                        {
+                "from_account_id": self.sender.pk,
                 "to_account_id": self.receiver.pk,
                 "amount": "1000.00",
                 "idempotency_key": "api-transfer-001",
@@ -522,11 +691,12 @@ class TransactionAPITests(TestCase):
 
         response = self.client.post(
             "/api/transactions/transfer/",
-            {
-                "to_account_id": self.receiver.pk,
-                "amount": "6000.00",
-                "idempotency_key": "api-insufficient-001",
-            },
+                    {
+            "from_account_id": self.sender.pk,
+            "to_account_id": self.receiver.pk,
+            "amount": "6000.00",
+            "idempotency_key": "api-insufficient-001",
+        },
             format="json",
         )
 
@@ -574,6 +744,7 @@ class TransactionAPITests(TestCase):
         response = self.client.post(
             "/api/transactions/transfer/",
             {
+                "from_account_id": self.sender.pk,
                 "to_account_id": self.sender.pk,
                 "amount": "1000.00",
                 "idempotency_key": "api-same-account-001",
@@ -702,10 +873,11 @@ class TransactionAPITests(TestCase):
         self.authenticate(self.sender_user)
 
         payload = {
-            "to_account_id": self.receiver.pk,
-            "amount": "1000.00",
-            "idempotency_key": "api-idempotency-001",
-        }
+        "from_account_id": self.sender.pk,
+        "to_account_id": self.receiver.pk,
+        "amount": "1000.00",
+        "idempotency_key": "api-idempotency-001",
+          }
 
         # First request
         first_response = self.client.post(
@@ -939,10 +1111,11 @@ class TransactionAPITests(TestCase):
         self.authenticate(self.sender_user)
 
         payload = {
-            "to_account_id": self.receiver.pk,
-            "amount": "1000.00",
-            "idempotency_key": "api-idempotency-001",
-        }
+        "from_account_id": self.sender.pk,
+        "to_account_id": self.receiver.pk,
+        "amount": "1000.00",
+        "idempotency_key": "api-idempotency-001",
+            }
 
         first_response = self.client.post(
             "/api/transactions/transfer/",
@@ -1043,3 +1216,5 @@ class TransactionAPITests(TestCase):
             "direction",
             response.data,
         )
+            
+    

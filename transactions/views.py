@@ -32,10 +32,17 @@ class TransferView(APIView):
 
         if serializer.is_valid():
             try:
-                sender_account = Account.objects.get(
+                sender_account = Account.objects.filter(
+                    pk=serializer.validated_data["from_account_id"],
                     user=request.user,
                     status="active",
-                )
+                ).first()
+
+                if not sender_account:
+                    return Response(
+                        {"detail": "You are not authorized to use this account."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
 
                 transfer = transfer_money(
                     from_account_id=sender_account.pk,

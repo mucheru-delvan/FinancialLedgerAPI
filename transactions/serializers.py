@@ -7,6 +7,7 @@ from transactions.models import Transaction, TransactionStatus
 
 
 class TransferSerializer(serializers.Serializer):
+    from_account_id = serializers.IntegerField()
     to_account_id = serializers.IntegerField()
 
     amount = serializers.DecimalField(
@@ -19,6 +20,21 @@ class TransferSerializer(serializers.Serializer):
         max_length=255,
         trim_whitespace=True,
     )
+
+    def validate_from_account_id(self, value):
+        try:
+            account = Account.objects.get(pk=value)
+        except Account.DoesNotExist:
+            raise serializers.ValidationError(
+                "Sender account does not exist."
+            )
+
+        if account.status != AccountStatus.ACTIVE.value:
+            raise serializers.ValidationError(
+                "Sender account is not active."
+            )
+
+        return value
 
     def validate_to_account_id(self, value):
         try:
@@ -34,8 +50,8 @@ class TransferSerializer(serializers.Serializer):
             )
 
         return value
-
-
+    
+    
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
