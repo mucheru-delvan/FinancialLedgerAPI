@@ -21,21 +21,6 @@ class TransferSerializer(serializers.Serializer):
         trim_whitespace=True,
     )
 
-    def validate_from_account_id(self, value):
-        try:
-            account = Account.objects.get(pk=value)
-        except Account.DoesNotExist:
-            raise serializers.ValidationError(
-                "Sender account does not exist."
-            )
-
-        if account.status != AccountStatus.ACTIVE.value:
-            raise serializers.ValidationError(
-                "Sender account is not active."
-            )
-
-        return value
-
     def validate_to_account_id(self, value):
         try:
             account = Account.objects.get(pk=value)

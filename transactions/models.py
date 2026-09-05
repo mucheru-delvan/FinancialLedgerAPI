@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.validators import MinValueValidator
 from django.db import models
 
@@ -33,7 +35,7 @@ class Transaction(models.Model):
     amount = models.DecimalField(
         max_digits=19,
         decimal_places=2,
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(Decimal("0.01"))],
     )
 
     idempotency_key = models.CharField(

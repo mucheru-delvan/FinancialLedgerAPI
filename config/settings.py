@@ -27,8 +27,35 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = config(
+    "ALLOWED_HOSTS",
+    default="localhost,127.0.0.1",
+    cast=lambda value: [host.strip() for host in value.split(",")],
+)
 
+SECURE_SSL_REDIRECT = config(
+    "SECURE_SSL_REDIRECT",
+    default=False,
+    cast=bool,
+)
+
+SESSION_COOKIE_SECURE = config(
+    "SESSION_COOKIE_SECURE",
+    default=False,
+    cast=bool,
+)
+
+CSRF_COOKIE_SECURE = config(
+    "CSRF_COOKIE_SECURE",
+    default=False,
+    cast=bool,
+)
+
+SECURE_HSTS_SECONDS = config(
+    "SECURE_HSTS_SECONDS",
+    default=0,
+    cast=int,
+)
 
 # Application definition
 
@@ -131,11 +158,10 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+EMAIL_BACKEND = config(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.console.EmailBackend",
+)
 
 AUTH_USER_MODEL = "users.User"
 

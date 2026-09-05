@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:18
+    container_name: financial_ledger_db
+
+    environment:
+      POSTGRES_DB: financial_ledger
+      POSTGRES_USER: financial_ledger_user
+      POSTGRES_PASSWORD: financial_ledger_password
+
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U financial_ledger_user -d financial_ledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: financial_ledger_api
+
+    command: uv run gunicorn config.wsgi:application --bind 0.0.0.0:8000
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "uv run python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/schema/')\""
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
