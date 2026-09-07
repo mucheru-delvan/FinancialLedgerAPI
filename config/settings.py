@@ -28,11 +28,15 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)
 
-ALLOWED_HOSTS = config(
-    "ALLOWED_HOSTS",
-    default="localhost,127.0.0.1",
-    cast=lambda value: [host.strip() for host in value.split(",")],
-)
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+]
+
+render_hostname = config("RENDER_EXTERNAL_HOSTNAME", default="")
+
+if render_hostname:
+    ALLOWED_HOSTS.append(render_hostname)
 
 SECURE_SSL_REDIRECT = config(
     "SECURE_SSL_REDIRECT",
