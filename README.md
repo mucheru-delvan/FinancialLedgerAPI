@@ -1,350 +1,495 @@
 # FinancialLedgerAPI
 
-A RESTful API for managing financial accounts, transactions, and ledger records with secure authentication and reliable transaction processing.
+A RESTful financial ledger API built with Django REST Framework and PostgreSQL for managing user accounts, financial transactions, and double-entry ledger records.
 
-## Overview
-
-FinancialLedgerAPI is a backend financial ledger system built with Django REST Framework and PostgreSQL. It provides authenticated users with financial accounts and supports secure money transfers while maintaining consistent ledger records.
-
-The system is designed around transactional integrity and account ownership, ensuring that transfers are processed atomically and users can only access financial resources they are authorized to use.
+The project focuses on secure authentication, reliable money transfers, transaction integrity, idempotency, concurrency handling, and production deployment.
 
 ## Features
 
-* User registration and JWT-based authentication
-* Authenticated user profile access
-* Financial account management
-* Secure account-to-account transfers
-* Transaction history and transaction details
-* Transaction filtering by status, direction, and date
-* Idempotent transfer processing to prevent duplicate transactions
-* Database-level transaction locking for concurrent transfers
-* Double-entry ledger records for transfers
+* User registration and authentication
+* JWT-based authentication
+* Access and refresh tokens
+* Refresh token rotation and blacklisting
+* User account management
+* Financial account balances
+* Money transfers between accounts
+* Double-entry ledger records
+* Transaction status tracking
+* Idempotent transfers using idempotency keys
+* Database transaction atomicity
+* Row-level locking for concurrent transfers
+* Currency validation
+* Account status validation
+* Transaction history
+* Transaction filtering
+* Pagination
+* API throttling
+* OpenAPI schema and Swagger documentation
+* Automated tests
+* Docker containerization
 * PostgreSQL database
-* Interactive API documentation with Swagger
-* Automated test suite for transaction workflows
+* Production deployment with Render and Neon
 
 ## Tech Stack
 
-* **Python**
-* **Django**
-* **Django REST Framework**
-* **PostgreSQL**
-* **JWT**
-* **drf-spectacular**
-* **Git & GitHub**
-* **Swagger / OpenAPI**
+| Technology            | Purpose                                      |
+| --------------------- | -------------------------------------------- |
+| Python                | Backend programming language                 |
+| Django                | Web framework                                |
+| Django REST Framework | REST API development                         |
+| PostgreSQL            | Relational database                          |
+| SimpleJWT             | JWT authentication                           |
+| drf-spectacular       | OpenAPI/Swagger documentation                |
+| Docker                | Containerization                             |
+| Gunicorn              | Production WSGI server                       |
+| Nginx                 | Reverse proxy for local container setup      |
+| Render                | Production application hosting               |
+| Neon                  | Production PostgreSQL database               |
+| uv                    | Python dependency and environment management |
+| Git/GitHub            | Version control                              |
 
-## API Architecture
-
-The API follows a layered approach:
+## Architecture
 
 ```text
-HTTP Request
-     ↓
-URL Routing
-     ↓
-Authentication / Permissions
-     ↓
-View
-     ↓
-Serializer / Validation
-     ↓
+Client
+   │
+   ▼
+REST API
+   │
+   ▼
+Django REST Framework
+   │
+   ├── Authentication / Permissions
+   │
+   ├── Serializers
+   │
+   ├── Views / ViewSets
+   │
+   ▼
 Service Layer
-     ↓
-Database Transaction
-     ↓
+   │
+   ├── Transfer validation
+   ├── Idempotency
+   ├── Atomic transactions
+   └── Concurrency control
+   │
+   ▼
 PostgreSQL
-     ↓
-Serializer
-     ↓
-JSON Response
+   │
+   ├── Accounts
+   ├── Transactions
+   └── Ledger Entries
 ```
 
-The transfer workflow is handled through a dedicated service layer so that the business logic for transferring money remains separate from the HTTP/API layer.
+### Production
+
+```text
+Internet
+   │
+   ▼
+Render
+   │
+   ▼
+Django + Gunicorn
+   │
+   ▼
+Neon PostgreSQL
+```
+
+## Authentication
+
+The API uses JWT authentication.
+
+Users obtain access and refresh tokens through the authentication endpoints.
+
+Access tokens are short-lived, while refresh tokens can be used to obtain new access tokens.
+
+Refresh token rotation and blacklisting are enabled to prevent reuse of rotated refresh tokens.
+
+Protected endpoints require:
+
+```http
+Authorization: Bearer <access_token>
+```
+
 ## API Endpoints
 
 ### Authentication
 
-| Method | Endpoint              | Description                               | Authentication |
-| ------ | --------------------- | ----------------------------------------- | -------------- |
-| `POST` | `/api/auth/register/` | Register a new user                       | No             |
-| `POST` | `/api/auth/login/`    | Authenticate a user and obtain JWT tokens | No             |
-| `GET`  | `/api/auth/me/`       | Retrieve the authenticated user's profile | JWT            |
+```text
+POST /api/auth/register/
+POST /api/auth/login/
+POST /api/auth/token/refresh/
+```
 
 ### Accounts
 
-| Method | Endpoint            | Description                                      | Authentication |
-| ------ | ------------------- | ------------------------------------------------ | -------------- |
-| `GET`  | `/api/accounts/me/` | Retrieve the authenticated user's active account | JWT            |
+```text
+GET /api/accounts/
+GET /api/accounts/{id}/
+```
 
 ### Transactions
 
-| Method | Endpoint                      | Description                                | Authentication |
-| ------ | ----------------------------- | ------------------------------------------ | -------------- |
-| `POST` | `/api/transactions/transfer/` | Transfer money between accounts            | JWT            |
-| `GET`  | `/api/transactions/`          | Retrieve the user's transaction history    | JWT            |
-| `GET`  | `/api/transactions/{id}/`     | Retrieve details of a specific transaction | JWT            |
+```text
+GET  /api/transactions/
+GET  /api/transactions/{id}/
+POST /api/transactions/transfer/
+```
 
-## Transaction Processing
-
-Transfers are processed through a dedicated service layer rather than placing the business logic directly inside the API view.
-
-A transfer follows this process:
+### Documentation
 
 ```text
-Client
-  ↓
-Transfer API
-  ↓
-Validate request
-  ↓
-Verify account ownership
-  ↓
-Start database transaction
-  ↓
+GET /api/schema/
+GET /api/docs/
+```
+
+## Money Transfer
+
+Transfers are handled inside a database transaction.
+
+The transfer process validates:
+
+1. The sender and receiver are different accounts.
+2. Both accounts exist.
+3. Both accounts are active.
+4. Both accounts use the same currency.
+5. The idempotency key has not been used for a different transaction.
+6. The sender has sufficient funds.
+
+The accounts are locked using database row-level locking before the balance is checked.
+
+This prevents concurrent transfers from spending the same balance.
+
+Conceptually:
+
+```text
+Request
+   │
+   ▼
+Validate transfer
+   │
+   ▼
 Lock accounts
-  ↓
-Validate balances and account status
-  ↓
-Check idempotency key
-  ↓
+   │
+   ▼
+Check idempotency
+   │
+   ▼
+Check balance
+   │
+   ▼
 Create transaction
-  ↓
+   │
+   ▼
 Create debit ledger entry
-  ↓
+   │
+   ▼
 Create credit ledger entry
-  ↓
-Commit transaction
-  ↓
-Return response
+   │
+   ▼
+Mark transaction COMPLETED
 ```
 
-The transfer operation uses database transactions and row-level locking to maintain consistency when multiple transfers are processed concurrently.
-
-## Ledger Model
-
-Each successful transfer produces two ledger entries:
-
-```text
-Sender Account
-     ↓
-DEBIT  - 100.00 KES
-
-Receiver Account
-     ↓
-CREDIT + 100.00 KES
-```
-
-The account balance is derived from its ledger entries:
-
-```text
-Balance = Total Credits - Total Debits
-```
-
-This provides an auditable record of financial activity instead of relying only on a mutable balance value.
+If any operation fails, the database transaction is rolled back.
 
 ## Idempotency
 
-Transfers require an idempotency key.
+Transfers require an `idempotency_key`.
 
-If a client retries the same request with the same key, the system prevents the transfer from being processed twice.
+This prevents accidental duplicate processing when the same request is submitted more than once.
 
-This protects against duplicate transactions caused by:
+For example:
 
-* Network retries
-* Client retries
-* Request timeouts
-* Accidental duplicate submissions
+```json
+{
+  "from_account_id": 1,
+  "to_account_id": 2,
+  "amount": "100.00",
+  "idempotency_key": "transfer-001"
+}
+```
 
-## API Documentation
+If the same request is submitted again with the same key, the existing transaction can be returned instead of creating another transfer.
 
-Interactive API documentation is available through Swagger:
+If the same key is reused with different transaction details, the request is rejected.
+
+## Ledger
+
+The system records transfers using ledger entries.
+
+A successful transfer creates:
+
+```text
+Sender Account
+    │
+    └── DEBIT 100.00
+
+Receiver Account
+    │
+    └── CREDIT 100.00
+```
+
+The ledger provides a transaction history from which account balances can be calculated.
+
+## Transaction Integrity
+
+The transfer service uses Django's database transaction management:
+
+```python
+with transaction.atomic():
+    ...
+```
+
+This ensures that related database operations succeed or fail together.
+
+For example, if the debit entry succeeds but the credit entry fails, the entire transfer is rolled back.
+
+## Concurrency Control
+
+The transfer service uses:
+
+```python
+select_for_update()
+```
+
+to lock the accounts involved in a transfer.
+
+Accounts are locked in a consistent order to reduce the risk of deadlocks.
+
+This is important when multiple requests attempt to transfer money from the same account at the same time.
+
+## Validation
+
+The API validates:
+
+* Positive transaction amounts
+* Sender and receiver accounts
+* Account status
+* Currency compatibility
+* Sufficient balance
+* Idempotency keys
+* User authorization
+
+Example insufficient-balance response:
+
+```json
+{
+  "detail": "Insufficient balance. Current balance is 0.00. Requested amount is 100.00."
+}
+```
+
+## Pagination and Filtering
+
+Transaction history supports pagination and filtering.
+
+Example:
+
+```text
+GET /api/transactions/
+```
+
+Response:
+
+```json
+{
+  "count": 10,
+  "next": "...",
+  "previous": null,
+  "results": []
+}
+```
+
+## API Throttling
+
+The API uses DRF throttling to limit request rates.
+
+Configured limits include:
+
+```text
+Anonymous users: 20 requests/minute
+Authenticated users: 60 requests/minute
+```
+
+This provides basic protection against excessive API requests.
+
+## Testing
+
+The project includes automated tests covering areas such as:
+
+* Successful transfers
+* Insufficient funds
+* Same-account transfers
+* Invalid accounts
+* Inactive accounts
+* Currency mismatch
+* Transaction rollback
+* Idempotency
+* Concurrent transfers
+* Authorization
+* Transaction filtering
+* Transaction status filtering
+* Pagination
+
+The test suite has previously passed with:
+
+```text
+Ran 33 tests
+
+OK
+```
+
+## Environment Variables
+
+Sensitive configuration is stored in environment variables rather than committed to Git.
+
+Example:
+
+```env
+SECRET_KEY=your-secret-key
+DEBUG=False
+DATABASE_URL=your-postgresql-connection-string
+SECURE_SSL_REDIRECT=True
+```
+
+The `.env` file is excluded from version control.
+
+## Running Locally
+
+Clone the repository:
+
+```bash
+git clone https://github.com/mucheru-delvan/FinancialLedgerAPI.git
+cd FinancialLedgerAPI
+```
+
+Create and activate the virtual environment:
+
+```bash
+uv sync
+source .venv/bin/activate
+```
+
+Run migrations:
+
+```bash
+uv run python manage.py migrate
+```
+
+Start the development server:
+
+```bash
+uv run python manage.py runserver
+```
+
+The API will be available at:
+
+```text
+http://127.0.0.1:8000/
+```
+
+Swagger documentation:
 
 ```text
 http://127.0.0.1:8000/api/docs/
 ```
 
-The OpenAPI schema is available at:
+## Docker
 
-```text
-http://127.0.0.1:8000/api/schema/
-```
-## Security & Design
+The project includes Docker support for running the application in containers.
 
-FinancialLedgerAPI uses several mechanisms to protect financial operations and maintain data consistency.
-
-### JWT Authentication
-
-The API uses JSON Web Tokens (JWT) for authentication. Protected endpoints require a valid access token, ensuring that only authenticated users can access financial resources.
-
-### Authorization & Account Ownership
-
-Authentication alone is not enough to access financial data. The API verifies that the authenticated user owns the account involved in an operation.
-
-For example, a user cannot initiate a transfer using another user's account.
-
-Transaction history is also restricted to transactions involving the authenticated user's accounts.
-
-### Atomic Transactions
-
-Money transfers are executed inside a database transaction using Django's `transaction.atomic()`.
-
-This ensures that the transfer either completes fully or none of its changes are committed.
-
-For example:
-
-```text
-Create Transaction
-      +
-Debit Sender
-      +
-Credit Receiver
-      ↓
-   COMMIT
-```
-
-If any operation fails, the entire transaction is rolled back.
-
-### Row-Level Locking
-
-The transfer service uses database row-level locking with `select_for_update()`.
-
-Accounts involved in a transfer are locked while the transaction is being processed. This helps prevent race conditions when multiple transfers attempt to modify the same accounts concurrently.
-
-### Idempotency
-
-Each transfer requires an idempotency key.
-
-If the same request is submitted again with the same key, the API prevents the transfer from being processed twice.
-
-This is particularly useful when clients retry requests because of network failures or timeouts.
-
-### Environment Variables
-
-Sensitive configuration such as database credentials and Django's secret key is stored in environment variables through a `.env` file rather than being hard-coded in the source code.
-
-The `.env` file should never be committed to version control.
-
-### API-Level Protection
-
-Protected endpoints use Django REST Framework's `IsAuthenticated` permission class.
-
-The API also performs additional ownership checks at the application level before allowing financial operations.
-
-These controls work together to ensure that authentication, authorization, and transaction processing are handled separately.
-## Project Structure
-
-```text
-FinancialLedgerAPI/
-│
-├── config/
-│   ├── settings.py
-│   ├── urls.py
-│   └── ...
-│
-├── accounts/
-│   ├── models.py
-│   ├── serializers.py
-│   ├── views.py
-│   └── ...
-│
-├── transactions/
-│   ├── models.py
-│   ├── serializers.py
-│   ├── services.py
-│   ├── views.py
-│   └── ...
-│
-├── users/
-│   ├── models.py
-│   ├── serializers.py
-│   ├── views.py
-│   └── ...
-│
-├── ledger/
-│   ├── models.py
-│   └── ...
-│
-├── manage.py
-├── .env
-├── .gitignore
-└── README.md
-```
-
-### Application Responsibilities
-
-| Component      | Responsibility                                                     |
-| -------------- | ------------------------------------------------------------------ |
-| `users`        | User registration, authentication, and user profile management     |
-| `accounts`     | Financial account management and account ownership                 |
-| `transactions` | Transfers, transaction history, filtering, and transaction details |
-| `ledger`       | Ledger entries representing debits and credits                     |
-| `config`       | Django project configuration, settings, and URL routing            |
-
-### Service Layer
-
-The transaction business logic is separated from the API views.
-
-The `transactions/services.py` module is responsible for processing transfers, including:
-
-* Validating account state
-* Checking available balance
-* Preventing transfers to the same account
-* Applying database locks
-* Handling idempotency
-* Creating the transaction record
-* Creating debit and credit ledger entries
-* Executing the operation atomically
-
-This separation keeps the API views focused on handling HTTP requests and responses while the service layer manages the core financial business logic.
-## Testing
-
-The project includes automated tests covering the core financial transaction workflows.
-
-Run the test suite with:
+Build the image:
 
 ```bash
-python manage.py test
+docker build -t financial-ledger-api .
 ```
 
-Run Django's system checks with:
+Run the container:
 
 ```bash
-python manage.py check
+docker run --rm \
+  -p 8000:8000 \
+  -e PORT=8000 \
+  --env-file .env \
+  financial-ledger-api
 ```
 
-The tests cover important transaction scenarios such as:
+The project also includes Docker Compose for running Django, PostgreSQL, and Nginx together.
 
-* Successful transfers
-* Insufficient account balance
-* Invalid or inactive accounts
-* Unauthorized account access
-* Same-account transfers
-* Duplicate transfers using idempotency keys
-* Transaction rollback
-* Concurrent transaction handling
-* Ledger entry creation
+```bash
+docker compose up --build
+```
 
-The test suite helps verify that financial operations maintain data consistency and that invalid operations do not modify account balances or ledger records.
+## Production Deployment
 
-## Future Improvements
+The API is deployed using:
 
-The following improvements could be added as the project evolves:
+* Render for the Django application
+* Neon for PostgreSQL
 
-* Dockerize the application for consistent development and deployment environments
-* Add CI/CD with GitHub Actions
-* Deploy the API to a cloud platform
-* Add API rate limiting
-* Add refresh-token rotation and stronger JWT security controls
-* Add comprehensive API integration tests
-* Add structured application logging and monitoring
-* Add database backups and recovery procedures
-* Improve account support to allow multiple accounts per user
-* Add pagination and performance optimizations for large transaction histories
-* Add role-based access control for administrative operations
-* Add support for additional transaction types
-## License
+Production architecture:
 
-This project is available for educational and portfolio purposes.
+```text
+Client
+  │
+  ▼
+Render
+  │
+  ▼
+Docker
+  │
+  ▼
+Gunicorn
+  │
+  ▼
+Django REST Framework
+  │
+  ▼
+Neon PostgreSQL
+```
 
+Production API:
+
+```text
+https://financialledgerapi.onrender.com
+```
+
+Swagger:
+
+```text
+https://financialledgerapi.onrender.com/api/docs/
+```
+
+## Security
+
+Security measures implemented include:
+
+* JWT authentication
+* Short-lived access tokens
+* Refresh token rotation
+* Refresh token blacklisting
+* Password hashing through Django
+* Authenticated API permissions
+* Environment-based secrets
+* HTTPS in production
+* API throttling
+* Database transactions
+* Row-level locking
+* Idempotent transaction processing
+* Input validation
+
+## Project Goals
+
+This project was built to demonstrate practical backend engineering concepts relevant to financial systems, including:
+
+* REST API design
+* Authentication and authorization
+* Relational database design
+* Transaction processing
+* ACID transactions
+* Concurrency control
+* Idempotency
+* Testing
+* Containerization
+* Production deployment
 
