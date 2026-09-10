@@ -6,6 +6,11 @@ from ledger.models import LedgerEntry, LedgerEntryType
 
 
 def get_account_balance(account):
+    """
+    Calculate the account balance from its ledger entries.
+
+    Credits increase the balance, while debits decrease it.
+    """
     total_credit = (
         LedgerEntry.objects
         .filter(

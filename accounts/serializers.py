@@ -20,5 +20,6 @@ class AccountSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_balance(self, account) -> str:
+        """Return the account's current balance calculated from ledger entries."""
         balance = get_account_balance(account)
         return f"{balance:.2f}"
