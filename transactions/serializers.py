@@ -22,6 +22,9 @@ class TransferSerializer(serializers.Serializer):
     )
 
     def validate_to_account_id(self, value):
+        """
+        Validate that the receiver account exists and is active.
+        """
         try:
             account = Account.objects.get(pk=value)
         except Account.DoesNotExist:
@@ -35,8 +38,8 @@ class TransferSerializer(serializers.Serializer):
             )
 
         return value
-    
-    
+
+
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
@@ -84,6 +87,9 @@ class TransactionFilterSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
+        """
+        Validate that the date range is in chronological order.
+        """
         from_date = attrs.get("from_date")
         to_date = attrs.get("to_date")
 
