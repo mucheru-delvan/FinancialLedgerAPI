@@ -18,6 +18,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        """
+        Create a user and their initial KES account atomically.
+        """
+        #Create the user and create their account as one operation. 
+        # If either operation fails, neither is saved to the database.
         user = User.objects.create_user(
             email=validated_data["email"],
             name=validated_data["name"],
@@ -44,6 +49,9 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
+        """
+        Authenticate the user and reject inactive accounts.
+        """
         email = attrs["email"]
         password = attrs["password"]
 

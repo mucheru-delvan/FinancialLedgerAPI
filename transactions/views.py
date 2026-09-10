@@ -28,6 +28,9 @@ class TransferView(APIView):
         tags=["transactions"],
     )
     def post(self, request):
+        """
+        Validate a transfer request and process the money transfer.
+        """
         serializer = TransferSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -83,6 +86,9 @@ class TransactionListView(ListAPIView):
         tags=["transactions"],
     )
     def get_queryset(self):
+        """
+        Return the authenticated user's transactions with optional filters.
+        """
         accounts = Account.objects.filter(
             user=self.request.user
         )
@@ -159,6 +165,9 @@ class TransactionDetailView(APIView):
         tags=["transactions"],
     )
     def get(self, request, pk):
+        """
+        Return a transaction accessible to the authenticated user.
+        """
         accounts = Account.objects.filter(
             user=request.user
         )
