@@ -15,6 +15,25 @@ def transfer_money(
     amount,
     idempotency_key,
 ):
+    """
+    Transfer money from one account to another.
+
+    Both accounts must exist, be active, and use the same currency.
+    The sender must have sufficient funds.
+
+    The transfer is performed atomically so the transaction and its
+    debit and credit ledger entries are either all saved or all rolled
+    back if an error occurs.
+
+    Account rows are locked during the transfer to prevent concurrent
+    transfers from causing incorrect balances. The idempotency key
+    prevents the same transfer request from being processed more than
+    once.
+
+    Returns the existing transaction when a matching idempotency key
+    is reused, or the newly completed transaction when the transfer
+    succeeds.
+    """
     amount = Decimal(str(amount))
 
     if amount <= 0:
@@ -56,7 +75,7 @@ def transfer_money(
             raise ValueError(
                 "Currency mismatch between sender and receiver accounts"
             )
-                # Idempotency check.
+
         existing_transaction = (
             Transaction.objects
             .filter(idempotency_key=idempotency_key)
@@ -76,7 +95,6 @@ def transfer_money(
 
             return existing_transaction
 
-            # Calculate balance while the account is locked.
         balance = get_account_balance(from_account)
 
         if balance < amount:
@@ -86,7 +104,6 @@ def transfer_money(
                 f"Requested amount is {amount}."
             )
 
-        # Create transaction.
         new_transaction = Transaction.objects.create(
             from_account=from_account,
             to_account=to_account,
@@ -95,7 +112,6 @@ def transfer_money(
             status=TransactionStatus.PENDING,
         )
 
-        # Debit sender.
         LedgerEntry.objects.create(
             account=from_account,
             transaction=new_transaction,
@@ -103,7 +119,6 @@ def transfer_money(
             entry_type=LedgerEntryType.DEBIT,
         )
 
-        # Credit receiver.
         LedgerEntry.objects.create(
             account=to_account,
             transaction=new_transaction,
@@ -111,7 +126,6 @@ def transfer_money(
             entry_type=LedgerEntryType.CREDIT,
         )
 
-        # Everything succeeded.
         new_transaction.status = TransactionStatus.COMPLETED
         new_transaction.save(update_fields=["status"])
 

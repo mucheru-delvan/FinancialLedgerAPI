@@ -22,6 +22,9 @@ class RegisterView(APIView):
         tags=["auth"],
     )
     def post(self, request):
+        """
+        Register a new user and create their initial account.
+        """
         serializer = RegisterSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -60,6 +63,7 @@ class LoginView(APIView):
         tags=["auth"],
     )
     def post(self, request):
+        '''Authenticate the user and return JWT tokens.'''
         serializer = LoginSerializer(data=request.data)
 
         if serializer.is_valid():
