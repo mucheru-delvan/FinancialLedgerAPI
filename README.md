@@ -447,13 +447,6 @@ Django REST Framework
   ▼
 Neon PostgreSQL
 ```
-
-Production API:
-
-```text
-https://financialledgerapi.onrender.com
-```
-
 Swagger:
 
 ```text
